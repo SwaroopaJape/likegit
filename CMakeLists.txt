@@ -1,0 +1,48 @@
+cmake_minimum_required ( VERSION 3.14)
+project ( likegit CXX)
+set( CMAKE_CXX_STANDARD 17)
+set( CMAKE_CXX_STANDARD_REQUIRED ON)
+
+
+# 2. Build our Core Library
+# We put our logic in a library so we can test it independently of the CLI
+add_library ( likegit_core
+src/core.cpp
+# Add other .cpp files here later!
+)
+# Tell the library where our header files (. hpp) live
+target_include_directories ( likegit_core PUBLIC include )
+
+
+# 3. Build the Command Line Executable
+add_executable ( likegit src/main.cpp)
+# Link our core library TO our executable
+target_link_libraries ( likegit PRIVATE likegit_core )
+# --- CLASSROOM EXPLANATION : PUBLIC vs PRIVATE ---
+# Notice we use 'PRIVATE ' here. This tells CMake: "The executable needs the
+# library to run , but it doesn 't pass the library 's dependencies on to anyone else."
+# In large systems , managing these visibility scopes prevents dependency hell!
+# ------------------------------------------------
+
+
+# 4. Fetch and Link External Libraries (e.g., OpenSSL & Zlib)
+find_package ( OpenSSL REQUIRED )
+find_package (ZLIB REQUIRED )
+target_link_libraries ( likegit_core PRIVATE OpenSSL::Crypto ZLIB::ZLIB)
+
+
+# 5. Testing Setup ( GoogleTest )
+enable_testing ()
+include ( FetchContent )
+FetchContent_Declare (
+googletest
+URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+# Set extracted file timestamps to the time of extraction (resolves warning about policy CMP0135)
+DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+
+FetchContent_MakeAvailable ( googletest )
+add_executable ( likegit_tests tests/test_core.cpp)
+target_link_libraries ( likegit_tests PRIVATE likegit_core gtest_main )
+include ( GoogleTest )
+gtest_discover_tests ( likegit_tests )
