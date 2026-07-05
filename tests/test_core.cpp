@@ -1,19 +1,35 @@
 # include <gtest/gtest.h>
-// Include the header of the code you want to test!
+#include <fstream>
 #include "likegit/core.hpp"
-// TEST( TestSuiteName , IndividualTestName )
 
-TEST(CoreTests , MathWorksCorrectly ) {
-int result = 2 + 2;
-// Use EXPECT_EQ for equality . If it fails , the test continues .
+namespace fs = std::filesystem;
 
-EXPECT_EQ (result , 4);
-// Use ASSERT_TRUE for booleans . If it fails , the test immediately halts .
-ASSERT_TRUE ( result > 0);
+TEST(InitTests, CreateObjDirectory) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_test_prj";
+    fs::remove_all(test_prj);
+
+    bool result = init_repository(test_prj);
+
+    ASSERT_TRUE(result);
+    EXPECT_TRUE(fs::exists(test_prj / ".likegit" / "objects"));
+    EXPECT_TRUE(fs::exists(test_prj / ".likegit" / "refs" / "heads"));
+    EXPECT_TRUE(fs::exists(test_prj / ".likegit" / "HEAD"));
+    
+    fs::remove_all(test_prj);
 }
 
+TEST(InitTests, HeadFileContentCheck) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_head_test";
+    fs::remove_all(test_prj);
 
-TEST(CoreTests , StringComparison ) {
-std::string text = "hello";
-EXPECT_EQ(text, "hello");
+    init_repository(test_prj);
+
+    std::ifstream head_file(test_prj / ".likegit" / "HEAD");
+    
+    std::string content;
+    std::getline(head_file, content);
+
+    ASSERT_EQ(content, "ref: refs/heads/main");
+
+    fs::remove_all(test_prj);
 }
