@@ -8,7 +8,7 @@ set( CMAKE_CXX_STANDARD_REQUIRED ON)
 # We put our logic in a library so we can test it independently of the CLI
 add_library ( likegit_core
 src/core.cpp
-# Add other .cpp files here later!
+src/sha1.cpp
 )
 # Tell the library where our header files (. hpp) live
 target_include_directories ( likegit_core PUBLIC include )
@@ -25,10 +25,9 @@ target_link_libraries ( likegit PRIVATE likegit_core )
 # ------------------------------------------------
 
 
-# 4. Fetch and Link External Libraries (e.g., OpenSSL & Zlib)
-find_package ( OpenSSL REQUIRED )
+# 4. Fetch and Link External Libraries (Zlib only — SHA-1 is implemented manually)
 find_package (ZLIB REQUIRED )
-target_link_libraries ( likegit_core PRIVATE OpenSSL::Crypto ZLIB::ZLIB)
+target_link_libraries ( likegit_core PRIVATE ZLIB::ZLIB)
 
 
 # 5. Testing Setup ( GoogleTest )
