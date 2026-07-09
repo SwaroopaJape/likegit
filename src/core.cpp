@@ -5,6 +5,9 @@
 #include <stdexcept>
 #include <zlib.h>
 #include "likegit/sha1.hpp"
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 namespace fs = std::filesystem;
 
@@ -66,4 +69,41 @@ void write_object(const std::string& hash, const std::string& data, const fs::pa
     object_file.close();
     return;
 
+}
+
+void update_index(const std::string& filepath, const std::string& hash, const fs::path& repo_path) {
+    fs::path index_path = repo_path / ".likegit" / "index.json";
+    json index_data;
+
+    std::ifstream file_in(index_path);
+    if (file_in.is_open()) {
+        file_in >> index_data;
+        file_in.close();
+    } else {
+        index_data["entries"] = json::array();
+    }
+
+    //auto mtime = fs::last_write_time(filepath).time_since_epoch().count();
+
+    json new_entry = {
+        {"path", filepath},
+        {"hash", hash},
+        {"mtime", 1690000000}
+    };
+
+    bool found = false;
+    for (auto& entry : index_data["entries"]) {
+        if (entry["path"] == filepath) {
+            entry = new_entry;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        index_data["entries"].push_back(new_entry);
+    }
+
+    std::ofstream file_out(index_path);
+    file_out << index_data.dump(4);
+    file_out.close();
 }

@@ -41,7 +41,16 @@ DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
 FetchContent_MakeAvailable ( googletest )
+
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable( nlohmann_json )
+# Link nlohmann as PUBLIC so downstream targets (tests, executable) inherit the include paths
+target_link_libraries ( likegit_core PUBLIC nlohmann_json::nlohmann_json)
 add_executable ( likegit_tests tests/test_core.cpp)
-target_link_libraries ( likegit_tests PRIVATE likegit_core gtest_main )
+target_link_libraries ( likegit_tests PRIVATE likegit_core gtest_main nlohmann_json::nlohmann_json)
 include ( GoogleTest )
 gtest_discover_tests ( likegit_tests )
