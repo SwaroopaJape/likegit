@@ -63,11 +63,23 @@ TEST(HashTests, WritesObjectToDisk) {
 }
 
 TEST(IndexTests, AddsEntryToIndex) {
-    fs::path test_prj = fs::temp_directory_path() / "likegit_index_test";
+    fs::path tests_dir = fs::path(__FILE__).parent_path();
+    fs::path test_prj  = tests_dir / "likegit_index_test";
     fs::remove_all(test_prj);
     init_repository(test_prj);
 
-    update_index("README.md", "abc123", test_prj);
+    fs::path file_path = test_prj / "README.md";
+    std::string file_content = "# My Project\nHello, LikeGit!\n";
+    {
+        std::ofstream out(file_path);
+        out << file_content;
+    }
+
+    std::string hash   = hash_object(file_content, "blob");
+    std::string header = "blob " + std::to_string(file_content.size()) + '\0' + file_content;
+    write_object(hash, header, test_prj);
+
+    update_index(file_path.string(), hash, test_prj);
 
     fs::path index_path = test_prj / ".likegit" / "index.json";
     ASSERT_TRUE(fs::exists(index_path));
@@ -77,30 +89,60 @@ TEST(IndexTests, AddsEntryToIndex) {
     f >> data;
 
     ASSERT_EQ(data["entries"].size(), 1u);
-    EXPECT_EQ(data["entries"][0]["path"], "README.md");
-    EXPECT_EQ(data["entries"][0]["hash"], "abc123");
+    EXPECT_EQ(data["entries"][0]["path"], file_path.string());
+    EXPECT_EQ(data["entries"][0]["hash"], hash);
 
     fs::remove_all(test_prj);
 }
 
 TEST(IndexTests, NoDuplicatesOnDoubleAdd) {
-    fs::path test_prj = fs::temp_directory_path() / "likegit_dedup_test";
+    fs::path tests_dir = fs::path(__FILE__).parent_path();
+    fs::path test_prj  = tests_dir / "likegit_dedup_test";
     fs::remove_all(test_prj);
     init_repository(test_prj);
 
-    // Add the same path twice — second call simulates a file edit with a new hash
-    update_index("README.md", "oldhash111", test_prj);
-    update_index("README.md", "newhash222", test_prj);
+    fs::path file_path    = test_prj / "hello.txt";
+    std::string content_v1 = "Hello, World!\n";
+    {
+        std::ofstream out(file_path);
+        out << content_v1;
+    }
 
-    fs::path index_path = test_prj / ".likegit" / "index.json";
-    std::ifstream f(index_path);
-    nlohmann::json data;
-    f >> data;
+    std::string hash_v1   = hash_object(content_v1, "blob");
+    std::string header_v1 = "blob " + std::to_string(content_v1.size()) + '\0' + content_v1;
+    write_object(hash_v1, header_v1, test_prj);
+    update_index(file_path.string(), hash_v1, test_prj);
 
-    // Must still be exactly ONE entry, not two
-    ASSERT_EQ(data["entries"].size(), 1u);
-    // And it must reflect the latest hash
-    EXPECT_EQ(data["entries"][0]["hash"], "newhash222");
+    update_index(file_path.string(), hash_v1, test_prj);
+
+    {
+        fs::path index_path = test_prj / ".likegit" / "index.json";
+        std::ifstream f(index_path);
+        nlohmann::json data;
+        f >> data;
+        ASSERT_EQ(data["entries"].size(), 1u) << "Duplicate entry was created!";
+        EXPECT_EQ(data["entries"][0]["hash"], hash_v1);
+    }
+
+    std::string content_v2 = "Hello, LikeGit! (edited)\n";
+    {
+        std::ofstream out(file_path);   
+        out << content_v2;
+    }
+
+    std::string hash_v2   = hash_object(content_v2, "blob");
+    std::string header_v2 = "blob " + std::to_string(content_v2.size()) + '\0' + content_v2;
+    write_object(hash_v2, header_v2, test_prj);
+    update_index(file_path.string(), hash_v2, test_prj);
+
+    {
+        fs::path index_path = test_prj / ".likegit" / "index.json";
+        std::ifstream f(index_path);
+        nlohmann::json data;
+        f >> data;
+        ASSERT_EQ(data["entries"].size(), 1u) << "Entry count changed after file edit!";
+        EXPECT_EQ(data["entries"][0]["hash"], hash_v2) << "Hash not updated after file edit!";
+    }
 
     fs::remove_all(test_prj);
 }

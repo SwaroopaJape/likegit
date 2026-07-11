@@ -83,12 +83,12 @@ void update_index(const std::string& filepath, const std::string& hash, const fs
         index_data["entries"] = json::array();
     }
 
-    //auto mtime = fs::last_write_time(filepath).time_since_epoch().count();
+    auto mtime = fs::last_write_time(filepath).time_since_epoch().count();
 
     json new_entry = {
         {"path", filepath},
         {"hash", hash},
-        {"mtime", 1690000000}
+        {"mtime", mtime}
     };
 
     bool found = false;
