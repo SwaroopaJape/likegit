@@ -71,6 +71,8 @@ void write_object(const std::string& hash, const std::string& data, const fs::pa
 
 }
 
+
+
 void update_index(const std::string& filepath, const std::string& hash, const fs::path& repo_path) {
     fs::path index_path = repo_path / ".likegit" / "index.json";
     json index_data;
@@ -83,11 +85,22 @@ void update_index(const std::string& filepath, const std::string& hash, const fs
         index_data["entries"] = json::array();
     }
 
+    // Detect the file mode from actual filesystem permissions
+    std::string mode;
+    if (fs::is_symlink(filepath)) {
+        mode = "120000";  // symbolic link
+    } else {
+        auto perms = fs::status(filepath).permissions();
+        bool executable = (perms & fs::perms::owner_exec) != fs::perms::none;
+        mode = executable ? "100755" : "100644";
+    }
+
     auto mtime = fs::last_write_time(filepath).time_since_epoch().count();
 
     json new_entry = {
         {"path", filepath},
         {"hash", hash},
+        {"mode", mode},
         {"mtime", mtime}
     };
 
@@ -106,4 +119,62 @@ void update_index(const std::string& filepath, const std::string& hash, const fs
     std::ofstream file_out(index_path);
     file_out << index_data.dump(4);
     file_out.close();
+}
+
+std::string generate_tree(const fs::path& repo_path) {
+    fs::path index_path = repo_path / ".likegit" / "index.json";
+    std::ifstream f(index_path);
+    json index_data;
+    f >> index_data;
+
+    std::string payload;
+    for (auto& entry : index_data["entries"]) {
+        std::string path = entry["path"];
+        std::string hash = entry["hash"];
+        std::string mode = entry.value("mode", "100644");
+        payload += mode + " blob " + hash + " " + path + "\n";
+    }
+
+    std::string header = "tree " + std::to_string(payload.size());
+    header += '\0';
+    header += payload;
+    std::string tree_hash = generate_sha1(header);
+    write_object(tree_hash, header, repo_path);
+    return tree_hash;
+}
+
+std::string create_commit(const std::string& message, const std::string& author_name, const std::string& author_email, const std::string& timestamp, const fs::path& repo_path) {
+    std::string tree_hash = generate_tree(repo_path);
+    fs::path ref_path = repo_path / ".likegit" / "refs" / "heads" / "main";
+    std::string parent_hash;
+    std::ifstream ref_in(ref_path);
+    if (ref_in.is_open()) {
+        std::getline(ref_in, parent_hash);
+        ref_in.close();
+    }
+
+    std::string author_line = author_name + " <" + author_email + "> " + timestamp;
+
+    std::string commit_content;
+    commit_content += "tree " + tree_hash + "\n";
+    if (!parent_hash.empty()) {
+        commit_content += "parent " + parent_hash + "\n";
+    }
+    commit_content += "author " + author_line + "\n";
+    commit_content += "committer " + author_line + "\n";
+    commit_content += "\n";
+    commit_content += message + "\n";
+
+    std::string header = "commit " + std::to_string(commit_content.size());
+    header += '\0';
+    header += commit_content;
+
+    std::string commit_hash = generate_sha1(header);
+    write_object(commit_hash, header, repo_path);
+
+    std::ofstream ref_out(ref_path);
+    ref_out << commit_hash;
+    ref_out.close();
+
+    return commit_hash;
 }

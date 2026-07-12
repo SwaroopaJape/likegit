@@ -10,3 +10,5 @@ std::string compress_data(const std::string& data);
 std::string hash_object(const std::string& content, const std::string& type);
 void write_object(const std::string& hash, const std::string& data, const fs::path& repo_path);
 void update_index(const std::string& filepath, const std::string& hash, const fs::path& repo_path);
+std::string generate_tree(const fs::path& repo_path);
+std::string create_commit(const std::string& message, const std::string& author_name, const std::string& author_email, const std::string& timestamp, const fs::path& repo_path);

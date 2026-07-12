@@ -146,3 +146,75 @@ TEST(IndexTests, NoDuplicatesOnDoubleAdd) {
 
     fs::remove_all(test_prj);
 }
+
+TEST(CommitTests, TreeObjectCreated) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_tree_test";
+    fs::remove_all(test_prj);
+    init_repository(test_prj);
+
+    std::string content = "Hello, World!\n";
+    fs::path file_path = test_prj / "hello.txt";
+    std::ofstream out1(file_path);
+    out1 << content;
+    out1.close();
+    std::string blob_hash = hash_object(content, "blob");
+    std::string blob_header = std::string("blob ") + std::to_string(content.size()) + '\0' + content;
+    write_object(blob_hash, blob_header, test_prj);
+    update_index(file_path.string(), blob_hash, test_prj);
+
+    {
+        nlohmann::json data;
+        std::ifstream f(test_prj / ".likegit" / "index.json");
+        f >> data;
+        EXPECT_EQ(data["entries"][0]["mode"], "100644");
+    }
+
+    fs::permissions(file_path, fs::perms::owner_exec, fs::perm_options::add);
+    update_index(file_path.string(), blob_hash, test_prj);
+
+    {
+        nlohmann::json data;
+        std::ifstream f(test_prj / ".likegit" / "index.json");
+        f >> data;
+        EXPECT_EQ(data["entries"][0]["mode"], "100755");
+    }
+
+    std::string tree_hash = generate_tree(test_prj);
+    ASSERT_EQ(tree_hash.size(), 40u);
+    fs::path obj = test_prj / ".likegit" / "objects" / tree_hash.substr(0, 2) / tree_hash.substr(2);
+    EXPECT_TRUE(fs::exists(obj));
+
+    fs::remove_all(test_prj);
+}
+
+TEST(CommitTests, CommitUpdatesRef) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_commit_test";
+    fs::remove_all(test_prj);
+    init_repository(test_prj);
+
+    std::string content = "# My Project\n";
+    fs::path file_path = test_prj / "README.md";
+    std::ofstream out2(file_path);
+    out2 << content;
+    out2.close();
+    std::string blob_hash = hash_object(content, "blob");
+    std::string blob_header = std::string("blob ") + std::to_string(content.size()) + '\0' + content;
+    write_object(blob_hash, blob_header, test_prj);
+    update_index(file_path.string(), blob_hash, test_prj);
+
+    std::string commit_hash = create_commit("Initial commit", "LikeGit User", "user@likegit.com", "1690020000", test_prj);
+
+    ASSERT_EQ(commit_hash.size(), 40u);
+
+    fs::path ref_path = test_prj / ".likegit" / "refs" / "heads" / "main";
+    std::ifstream ref_in(ref_path);
+    std::string stored_hash;
+    std::getline(ref_in, stored_hash);
+    EXPECT_EQ(stored_hash, commit_hash);
+
+    fs::path commit_obj = test_prj / ".likegit" / "objects"
+                        / commit_hash.substr(0, 2) / commit_hash.substr(2);
+    EXPECT_TRUE(fs::exists(commit_obj));
+
+    fs::remove_all(test_prj);
+}
