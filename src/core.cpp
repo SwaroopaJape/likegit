@@ -225,3 +225,113 @@ std::vector<std::string> list_config(const fs::path& repo_path) {
             lines.push_back(section + "." + name + "=" + val.get<std::string>());
     return lines;
 }
+
+
+std::string read_object(const std::string& hash, const fs::path& repo_path) {
+    if (hash.size() != 40) return "";
+    fs::path obj_path = repo_path / ".likegit" / "objects" / hash.substr(0, 2) / hash.substr(2);
+    if (!fs::exists(obj_path)) return "";
+
+    std::ifstream obj_in(obj_path, std::ios::binary);
+    std::string compressed((std::istreambuf_iterator<char>(obj_in)), {});
+
+    // Inflate
+    std::string decompressed(compressed.size() * 4, '\0'); 
+    uLongf dest_len = decompressed.size();
+    while (true) {
+        int res = uncompress(reinterpret_cast<Bytef*>(decompressed.data()), &dest_len,
+                             reinterpret_cast<const Bytef*>(compressed.data()), compressed.size());
+        if (res == Z_OK) {
+            decompressed.resize(dest_len);
+            break;
+        } else if (res == Z_BUF_ERROR) {
+            decompressed.resize(decompressed.size() * 2);
+            dest_len = decompressed.size();
+        } else {
+            return ""; // Failure
+        }
+    }
+
+    return decompressed;
+}
+
+void log_history(const fs::path& repo_path) {
+    fs::path ref_path = repo_path / ".likegit" / "refs" / "heads" / "main";
+    std::string current_hash;
+    std::ifstream ref_in(ref_path);
+    if (ref_in.is_open()) {
+        std::getline(ref_in, current_hash);
+        ref_in.close();
+    }
+
+    if (current_hash.empty()) {
+        std::cerr << "fatal: your current branch 'main' does not have any commits yet\n";
+        return;
+    }
+
+    while (!current_hash.empty()) {
+        std::string raw_obj = read_object(current_hash, repo_path);
+        if (raw_obj.empty()) {
+            std::cerr << "fatal: invalid object " << current_hash << "\n";
+            return;
+        }
+
+        std::string_view view(raw_obj);
+        
+        auto null_pos = view.find('\0');
+        if (null_pos == std::string_view::npos) return;
+        view.remove_prefix(null_pos + 1);
+
+        std::string_view parent_hash;
+        std::string_view author_line;
+        std::string_view commit_message;
+
+        auto body_start = view.find("\n\n");
+        if (body_start != std::string_view::npos) {
+            commit_message = view.substr(body_start + 2);
+            std::string_view headers = view.substr(0, body_start);
+
+            size_t pos = 0;
+            while (pos < headers.size()) {
+                auto end_line = headers.find('\n', pos);
+                if (end_line == std::string_view::npos) end_line = headers.size();
+                std::string_view line = headers.substr(pos, end_line - pos);
+
+                if (line.substr(0, 7) == "parent ") {
+                    parent_hash = line.substr(7);
+                } else if (line.substr(0, 7) == "author ") {
+                    author_line = line.substr(7);
+                }
+                
+                pos = end_line + 1;
+            }
+        }
+
+        std::cout << "\033[33mcommit " << current_hash << "\033[0m\n";
+        
+        if (!author_line.empty()) {
+            // Split "Swaroop Jape <swaroop@example.com> 1690020000"
+            auto time_pos = author_line.find_last_of("> ");
+            if (time_pos != std::string_view::npos) {
+                std::string_view name_email = author_line.substr(0, time_pos);
+                std::string_view timestamp_str = author_line.substr(time_pos + 1);
+                
+                try {
+                    time_t ts = std::stoll(std::string(timestamp_str));
+                    char time_buf[64];
+                    std::strftime(time_buf, sizeof(time_buf), "%a %b %d %H:%M:%S %Y %z", std::localtime(&ts));
+                    std::cout << "Author: " << name_email << "\n";
+                    std::cout << "Date:   " << time_buf << "\n";
+                } catch (...) {
+                    std::cout << "Author: " << author_line << "\n";
+                }
+            } else {
+                std::cout << "Author: " << author_line << "\n";
+            }
+        }
+        
+        std::cout << "\n    " << commit_message << "\n\n";
+
+        current_hash = std::string(parent_hash);
+    }
+}

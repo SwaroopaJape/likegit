@@ -94,9 +94,13 @@ int main(int argc, char* argv[]) {
         std::cout << "[main " << hash.substr(0, 7) << "] " << argv[3] << "\n";
         return 0;
 
+    } else if (command == "log") {
+        log_history(repo_path);
+        return 0;
+
     } else {
         std::cerr << "Unknown command: " << command << "\n";
-        std::cerr << "Available: init, config, add, commit\n";
+        std::cerr << "Available: init, config, add, commit, log\n";
         return 1;
     }
 }

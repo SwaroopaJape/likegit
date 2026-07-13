@@ -273,3 +273,22 @@ TEST(ConfigTests, CommitEmbedsAuthor) {
 
     fs::remove_all(test_prj);
 }
+
+
+TEST(LogTests, ReadObjectDecompresses) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_log_test";
+    fs::remove_all(test_prj);
+    init_repository(test_prj);
+
+    std::string content = "Testing read_object decompression\n";
+    std::string blob_hash = hash_object(content, "blob");
+    std::string blob_header = std::string("blob ") + std::to_string(content.size()) + '\0' + content;
+    
+    write_object(blob_hash, blob_header, test_prj);
+
+    std::string decompressed = read_object(blob_hash, test_prj);
+
+    EXPECT_EQ(decompressed, blob_header);
+
+    fs::remove_all(test_prj);
+}
