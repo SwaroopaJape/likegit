@@ -51,6 +51,6 @@ FetchContent_MakeAvailable( nlohmann_json )
 # Link nlohmann as PUBLIC so downstream targets (tests, executable) inherit the include paths
 target_link_libraries ( likegit_core PUBLIC nlohmann_json::nlohmann_json)
 add_executable ( likegit_tests tests/test_core.cpp)
-target_link_libraries ( likegit_tests PRIVATE likegit_core gtest_main nlohmann_json::nlohmann_json)
+target_link_libraries ( likegit_tests PRIVATE likegit_core gtest_main nlohmann_json::nlohmann_json ZLIB::ZLIB)
 include ( GoogleTest )
 gtest_discover_tests ( likegit_tests )

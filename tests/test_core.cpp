@@ -1,5 +1,6 @@
 # include <gtest/gtest.h>
 #include <fstream>
+#include <zlib.h>
 #include <nlohmann/json.hpp>
 #include "likegit/core.hpp"
 
@@ -215,6 +216,60 @@ TEST(CommitTests, CommitUpdatesRef) {
     fs::path commit_obj = test_prj / ".likegit" / "objects"
                         / commit_hash.substr(0, 2) / commit_hash.substr(2);
     EXPECT_TRUE(fs::exists(commit_obj));
+
+    fs::remove_all(test_prj);
+}
+
+TEST(ConfigTests, SetAndGet) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_config_test";
+    fs::remove_all(test_prj);
+    init_repository(test_prj);
+
+    set_config("user.name",  "eg_user",         test_prj);
+    set_config("user.email", "eg_user@example.com",  test_prj);
+
+    EXPECT_EQ(get_config("user.name",  test_prj), "eg_user");
+    EXPECT_EQ(get_config("user.email", test_prj), "eg_user@example.com");
+
+    auto lines = list_config(test_prj);
+    ASSERT_EQ(lines.size(), 2u);
+
+    fs::remove_all(test_prj);
+}
+
+TEST(ConfigTests, CommitEmbedsAuthor) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_author_test";
+    fs::remove_all(test_prj);
+    init_repository(test_prj);
+
+    set_config("user.name",  "eg_user",        test_prj);
+    set_config("user.email", "eg_user@example.com", test_prj);
+
+    std::string content = "hello\n";
+    fs::path file_path  = test_prj / "hello.txt";
+    { std::ofstream o(file_path); o << content; }
+    std::string blob_hash   = hash_object(content, "blob");
+    std::string blob_header = std::string("blob ") + std::to_string(content.size()) + '\0' + content;
+    write_object(blob_hash, blob_header, test_prj);
+    update_index(file_path.string(), blob_hash, test_prj);
+
+    std::string name  = get_config("user.name",  test_prj);
+    std::string email = get_config("user.email", test_prj);
+    std::string commit_hash = create_commit("Initial commit", name, email, "1690020000", test_prj);
+    fs::path obj_path = test_prj / ".likegit" / "objects"
+                      / commit_hash.substr(0, 2) / commit_hash.substr(2);
+    std::ifstream obj_in(obj_path, std::ios::binary);
+    std::string compressed((std::istreambuf_iterator<char>(obj_in)), {});
+
+    std::string decompressed(4096, '\0');
+    uLongf dest_len = decompressed.size();
+    uncompress(reinterpret_cast<Bytef*>(decompressed.data()), &dest_len,
+               reinterpret_cast<const Bytef*>(compressed.data()), compressed.size());
+    decompressed.resize(dest_len);
+
+    std::string expected_author = "author eg_user <eg_user@example.com> 1690020000";
+    EXPECT_NE(decompressed.find(expected_author), std::string::npos)
+        << "Author line not found in commit object.\nCommit content:\n" << decompressed;
 
     fs::remove_all(test_prj);
 }

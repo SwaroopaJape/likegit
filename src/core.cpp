@@ -85,10 +85,9 @@ void update_index(const std::string& filepath, const std::string& hash, const fs
         index_data["entries"] = json::array();
     }
 
-    // Detect the file mode from actual filesystem permissions
     std::string mode;
     if (fs::is_symlink(filepath)) {
-        mode = "120000";  // symbolic link
+        mode = "120000";
     } else {
         auto perms = fs::status(filepath).permissions();
         bool executable = (perms & fs::perms::owner_exec) != fs::perms::none;
@@ -177,4 +176,52 @@ std::string create_commit(const std::string& message, const std::string& author_
     ref_out.close();
 
     return commit_hash;
+}
+
+static fs::path config_path(const fs::path& repo_path) {
+    return repo_path / ".likegit" / "config.json";
+}
+
+static json read_config(const fs::path& repo_path) {
+    json cfg;
+    std::ifstream f(config_path(repo_path));
+    if (f.is_open()) f >> cfg;
+    return cfg;
+}
+
+static void write_config(const json& cfg, const fs::path& repo_path) {
+    std::ofstream f(config_path(repo_path));
+    f << cfg.dump(4);
+}
+
+void set_config(const std::string& key, const std::string& value, const fs::path& repo_path) {
+    auto dot = key.find('.');
+    if (dot == std::string::npos)
+        throw std::invalid_argument("Config key must be in 'section.name' format");
+    std::string section = key.substr(0, dot);
+    std::string name    = key.substr(dot + 1);
+    json cfg = read_config(repo_path);
+    cfg[section][name] = value;
+    write_config(cfg, repo_path);
+}
+
+std::string get_config(const std::string& key, const fs::path& repo_path) {
+    auto dot = key.find('.');
+    if (dot == std::string::npos)
+        throw std::invalid_argument("Config key must be in 'section.name' format");
+    std::string section = key.substr(0, dot);
+    std::string name    = key.substr(dot + 1);
+    json cfg = read_config(repo_path);
+    if (!cfg.contains(section) || !cfg[section].contains(name))
+        return "";
+    return cfg[section][name].get<std::string>();
+}
+
+std::vector<std::string> list_config(const fs::path& repo_path) {
+    std::vector<std::string> lines;
+    json cfg = read_config(repo_path);
+    for (auto& [section, entries] : cfg.items())
+        for (auto& [name, val] : entries.items())
+            lines.push_back(section + "." + name + "=" + val.get<std::string>());
+    return lines;
 }

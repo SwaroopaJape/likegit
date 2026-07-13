@@ -1,6 +1,8 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -12,3 +14,6 @@ void write_object(const std::string& hash, const std::string& data, const fs::pa
 void update_index(const std::string& filepath, const std::string& hash, const fs::path& repo_path);
 std::string generate_tree(const fs::path& repo_path);
 std::string create_commit(const std::string& message, const std::string& author_name, const std::string& author_email, const std::string& timestamp, const fs::path& repo_path);
+void set_config(const std::string& key, const std::string& value, const fs::path& repo_path);
+std::string get_config(const std::string& key, const fs::path& repo_path);
+std::vector<std::string> list_config(const fs::path& repo_path);
