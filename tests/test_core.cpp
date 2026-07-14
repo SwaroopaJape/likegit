@@ -360,3 +360,145 @@ TEST(DiffTests, BothFilesEmpty) {
     auto result = compute_diff({}, {});
     EXPECT_TRUE(result.empty());
 }
+
+// ── Branch Tests ─────────────────────────────────────────────────────────────
+
+// Helper: set up a repo with one commit so HEAD resolves correctly
+static std::string make_one_commit(const fs::path& repo) {
+    init_repository(repo);
+    set_config("user.name",  "Test User",         repo);
+    set_config("user.email", "test@example.com",  repo);
+
+    fs::path f = repo / "file.txt";
+    { std::ofstream o(f); o << "hello\n"; }
+    std::string content = "hello\n";
+    std::string h = hash_object(content, "blob");
+    write_object(h, "blob " + std::to_string(content.size()) + '\0' + content, repo);
+    update_index(f.string(), h, repo);
+    return create_commit("Initial commit", "Test User", "test@example.com", "1690020000", repo);
+}
+
+TEST(BranchTests, CreatesBranchFile) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_branch_create";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);
+
+    bool ok = create_branch("feature-x", test_prj);
+    EXPECT_TRUE(ok);
+
+    fs::path branch_file = test_prj / ".likegit" / "refs" / "heads" / "feature-x";
+    EXPECT_TRUE(fs::exists(branch_file));
+
+    fs::remove_all(test_prj);
+}
+
+TEST(BranchTests, BranchContainsCurrentHash) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_branch_hash";
+    fs::remove_all(test_prj);
+    std::string commit_hash = make_one_commit(test_prj);
+
+    create_branch("feature-x", test_prj);
+
+    fs::path branch_file = test_prj / ".likegit" / "refs" / "heads" / "feature-x";
+    std::ifstream in(branch_file);
+    std::string stored;
+    std::getline(in, stored);
+    EXPECT_EQ(stored, commit_hash);
+
+    fs::remove_all(test_prj);
+}
+
+TEST(BranchTests, DuplicateBranchFails) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_branch_dup";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);
+
+    create_branch("feature-x", test_prj);
+    bool second = create_branch("feature-x", test_prj); // should fail
+    EXPECT_FALSE(second);
+
+    fs::remove_all(test_prj);
+}
+
+// ── Checkout Tests ───────────────────────────────────────────────────────────
+
+TEST(CheckoutTests, SafetyCheckDetectsDirtyFile) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_checkout_dirty";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);
+
+    // Modify the tracked file without committing
+    fs::path f = test_prj / "file.txt";
+    { std::ofstream o(f); o << "modified content\n"; }
+
+    EXPECT_TRUE(has_uncommitted_changes(test_prj));
+
+    fs::remove_all(test_prj);
+}
+
+TEST(CheckoutTests, CleanRepoHasNoChanges) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_checkout_clean";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);
+
+    EXPECT_FALSE(has_uncommitted_changes(test_prj));
+
+    fs::remove_all(test_prj);
+}
+
+TEST(CheckoutTests, SwitchBranchRestoresFiles) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_checkout_switch";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);     // main: file.txt = "hello\n"
+
+    // Create feature branch and add a new file to it
+    create_branch("feature-x", test_prj);
+    checkout_branch("feature-x", test_prj);
+
+    fs::path f2 = test_prj / "feature.txt";
+    { std::ofstream o(f2); o << "feature\n"; }
+    std::string c2 = "feature\n";
+    std::string h2 = hash_object(c2, "blob");
+    write_object(h2, "blob " + std::to_string(c2.size()) + '\0' + c2, test_prj);
+    update_index(f2.string(), h2, test_prj);
+    create_commit("Feature commit", "Test User", "test@example.com", "1690020001", test_prj);
+
+    // Switch back to main — feature.txt should be gone
+    checkout_branch("main", test_prj);
+    EXPECT_FALSE(fs::exists(test_prj / "feature.txt"));
+    EXPECT_TRUE(fs::exists(test_prj / "file.txt"));
+
+    fs::remove_all(test_prj);
+}
+
+TEST(CheckoutTests, HeadUpdatedAfterCheckout) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_checkout_head";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);
+
+    create_branch("feature-x", test_prj);
+    checkout_branch("feature-x", test_prj);
+
+    std::ifstream head_in(test_prj / ".likegit" / "HEAD");
+    std::string head_content;
+    std::getline(head_in, head_content);
+    EXPECT_EQ(head_content, "ref: refs/heads/feature-x");
+
+    fs::remove_all(test_prj);
+}
+
+TEST(CheckoutTests, RefusesCheckoutWhenDirty) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_checkout_refuse";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);
+
+    create_branch("feature-x", test_prj);
+
+    // Dirty the working directory
+    { std::ofstream o(test_prj / "file.txt"); o << "unsaved changes!\n"; }
+
+    bool result = checkout_branch("feature-x", test_prj);
+    EXPECT_FALSE(result);
+
+    fs::remove_all(test_prj);
+}

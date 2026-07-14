@@ -21,3 +21,6 @@ void set_config(const std::string& key, const std::string& value, const fs::path
 std::string get_config(const std::string& key, const fs::path& repo_path);
 std::vector<std::string> list_config(const fs::path& repo_path);
 void log_history(const fs::path& repo_path);
+bool create_branch(const std::string& name, const fs::path& repo_path);
+bool has_uncommitted_changes(const fs::path& repo_path);
+bool checkout_branch(const std::string& target, const fs::path& repo_path);

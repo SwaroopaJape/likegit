@@ -98,9 +98,46 @@ int main(int argc, char* argv[]) {
         log_history(repo_path);
         return 0;
 
+    } else if (command == "branch") {
+        if (argc < 3) { std::cerr << "Usage: likegit branch <name>\n"; return 1; }
+        if (create_branch(argv[2], repo_path)) {
+            std::cout << "Created branch '" << argv[2] << "'\n";
+            return 0;
+        }
+        return 1;
+
+    } else if (command == "checkout") {
+        if (argc < 3) {
+            std::cerr << "Usage: likegit checkout <branch|hash>\n";
+            std::cerr << "       likegit checkout -b <new-branch>\n";
+            return 1;
+        }
+
+        std::string sub = argv[2];
+
+        // checkout -b <name>  → create + checkout in one step
+        if (sub == "-b") {
+            if (argc < 4) { std::cerr << "Usage: likegit checkout -b <name>\n"; return 1; }
+            std::string new_branch = argv[3];
+            if (!create_branch(new_branch, repo_path)) return 1;
+            if (!checkout_branch(new_branch, repo_path)) return 1;
+            std::cout << "Switched to a new branch '" << new_branch << "'\n";
+            return 0;
+        }
+
+        // Plain checkout
+        if (!checkout_branch(sub, repo_path)) return 1;
+        // Detect detached HEAD (target is a 40-char hash, not a branch name)
+        fs::path branch_path = repo_path / ".likegit" / "refs" / "heads" / sub;
+        if (fs::exists(branch_path))
+            std::cout << "Switched to branch '" << sub << "'\n";
+        else
+            std::cout << "HEAD is now at " << sub.substr(0, 7) << " (detached HEAD)\n";
+        return 0;
+
     } else {
         std::cerr << "Unknown command: " << command << "\n";
-        std::cerr << "Available: init, config, add, commit, log\n";
+        std::cerr << "Available: init, config, add, commit, log, branch, checkout\n";
         return 1;
     }
 }
