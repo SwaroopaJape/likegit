@@ -502,3 +502,71 @@ TEST(CheckoutTests, RefusesCheckoutWhenDirty) {
 
     fs::remove_all(test_prj);
 }
+
+// ── Merge Tests ──────────────────────────────────────────────────────────────
+
+TEST(MergeTests, FastForwardMerge) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_merge_ff";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj);
+    
+    create_branch("feature", test_prj);
+    checkout_branch("feature", test_prj);
+    
+    fs::path f2 = test_prj / "file2.txt";
+    { std::ofstream o(f2); o << "new file\n"; }
+    std::string c2 = "new file\n";
+    std::string h2 = hash_object(c2, "blob");
+    write_object(h2, "blob " + std::to_string(c2.size()) + '\0' + c2, test_prj);
+    update_index(f2.string(), h2, test_prj);
+    create_commit("Add file2", "Test User", "test@example.com", "1690020001", test_prj);
+    
+    checkout_branch("main", test_prj);
+    
+    bool ok = merge_branch("feature", test_prj);
+    EXPECT_TRUE(ok);
+    
+    EXPECT_TRUE(fs::exists(test_prj / "file2.txt"));
+    
+    fs::remove_all(test_prj);
+}
+
+TEST(MergeTests, MergeConflict) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_merge_conflict";
+    fs::remove_all(test_prj);
+    make_one_commit(test_prj); // LCA: file.txt = "hello\n"
+    
+    create_branch("feature", test_prj);
+    
+    // Modify on main
+    { std::ofstream o(test_prj / "file.txt"); o << "hello main\n"; }
+    std::string cm = "hello main\n";
+    std::string hm = hash_object(cm, "blob");
+    write_object(hm, "blob " + std::to_string(cm.size()) + '\0' + cm, test_prj);
+    update_index((test_prj / "file.txt").string(), hm, test_prj);
+    create_commit("Main mod", "Test User", "test@example.com", "1690020002", test_prj);
+    
+    // Modify on feature
+    checkout_branch("feature", test_prj);
+    { std::ofstream o(test_prj / "file.txt"); o << "hello feature\n"; }
+    std::string cf = "hello feature\n";
+    std::string hf = hash_object(cf, "blob");
+    write_object(hf, "blob " + std::to_string(cf.size()) + '\0' + cf, test_prj);
+    update_index((test_prj / "file.txt").string(), hf, test_prj);
+    create_commit("Feature mod", "Test User", "test@example.com", "1690020003", test_prj);
+    
+    // Checkout main and merge feature
+    checkout_branch("main", test_prj);
+    bool ok = merge_branch("feature", test_prj);
+    
+    EXPECT_FALSE(ok); // Merge should fail due to conflict
+    
+    std::ifstream in(test_prj / "file.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    
+    EXPECT_NE(content.find("<<<<<<< HEAD"), std::string::npos);
+    EXPECT_NE(content.find("======="), std::string::npos);
+    EXPECT_NE(content.find(">>>>>>> feature"), std::string::npos);
+    
+    fs::remove_all(test_prj);
+}

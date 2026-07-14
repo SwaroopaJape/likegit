@@ -24,3 +24,4 @@ void log_history(const fs::path& repo_path);
 bool create_branch(const std::string& name, const fs::path& repo_path);
 bool has_uncommitted_changes(const fs::path& repo_path);
 bool checkout_branch(const std::string& target, const fs::path& repo_path);
+bool merge_branch(const std::string& target_branch, const fs::path& repo_path);

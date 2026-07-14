@@ -135,9 +135,14 @@ int main(int argc, char* argv[]) {
             std::cout << "HEAD is now at " << sub.substr(0, 7) << " (detached HEAD)\n";
         return 0;
 
+    } else if (command == "merge") {
+        if (argc < 3) { std::cerr << "Usage: likegit merge <branch>\n"; return 1; }
+        if (!merge_branch(argv[2], repo_path)) return 1;
+        return 0;
+
     } else {
         std::cerr << "Unknown command: " << command << "\n";
-        std::cerr << "Available: init, config, add, commit, log, branch, checkout\n";
+        std::cerr << "Available: init, config, add, commit, log, branch, checkout, merge\n";
         return 1;
     }
 }

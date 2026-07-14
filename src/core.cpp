@@ -2,10 +2,15 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <queue>
+#include <unordered_set>
+#include <map>
+#include <set>
 #include <stdexcept>
 #include <zlib.h>
 #include "likegit/sha1.hpp"
 #include "likegit/diff.hpp"
+#include "likegit/core.hpp"
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -404,6 +409,229 @@ bool create_branch(const std::string& name, const fs::path& repo_path) {
     std::ofstream out(branch_path);
     if (!out.is_open()) return false;
     out << current_hash;
+    return true;
+}
+
+// ── Merge branch ──────────────────────────────────────────────────────────────
+
+struct CommitInfo {
+    std::string tree_hash;
+    std::vector<std::string> parents;
+};
+
+static CommitInfo parse_commit(const std::string& commit_hash, const fs::path& repo_path) {
+    CommitInfo info;
+    std::string raw = read_object(commit_hash, repo_path);
+    if (raw.empty()) return info;
+    std::string_view view(raw);
+    auto null_pos = view.find('\0');
+    if (null_pos != std::string_view::npos) view.remove_prefix(null_pos + 1);
+
+    auto body_start = view.find("\n\n");
+    std::string_view headers = view.substr(0, body_start);
+    size_t pos = 0;
+    while (pos < headers.size()) {
+        auto end_line = headers.find('\n', pos);
+        if (end_line == std::string_view::npos) end_line = headers.size();
+        std::string_view line = headers.substr(pos, end_line - pos);
+        if (line.substr(0, 5) == "tree ") info.tree_hash = std::string(line.substr(5));
+        else if (line.substr(0, 7) == "parent ") info.parents.push_back(std::string(line.substr(7)));
+        pos = end_line + 1;
+    }
+    return info;
+}
+
+static std::string find_lca(const std::string& commit1, const std::string& commit2, const fs::path& repo_path) {
+    if (commit1 == commit2) return commit1;
+    
+    std::queue<std::string> q1, q2;
+    std::unordered_set<std::string> visited1, visited2;
+    
+    q1.push(commit1);
+    q2.push(commit2);
+    
+    while (!q1.empty() || !q2.empty()) {
+        if (!q1.empty()) {
+            std::string curr = q1.front();
+            q1.pop();
+            visited1.insert(curr);
+            if (visited2.count(curr)) return curr;
+            
+            CommitInfo info = parse_commit(curr, repo_path);
+            for (const auto& p : info.parents) q1.push(p);
+        }
+        
+        if (!q2.empty()) {
+            std::string curr = q2.front();
+            q2.pop();
+            visited2.insert(curr);
+            if (visited1.count(curr)) return curr;
+            
+            CommitInfo info = parse_commit(curr, repo_path);
+            for (const auto& p : info.parents) q2.push(p);
+        }
+    }
+    return ""; // No common ancestor found
+}
+
+static std::map<std::string, std::string> get_tree_files(const std::string& tree_hash, const fs::path& repo_path) {
+    std::map<std::string, std::string> files;
+    if (tree_hash.empty()) return files;
+    std::string raw_tree = read_object(tree_hash, repo_path);
+    if (raw_tree.empty()) return files;
+    
+    std::string_view tree_view(raw_tree);
+    auto tree_null = tree_view.find('\0');
+    if (tree_null != std::string_view::npos) tree_view.remove_prefix(tree_null + 1);
+    
+    while (!tree_view.empty()) {
+        auto nl = tree_view.find('\n');
+        std::string_view tree_line = tree_view.substr(0, nl);
+        if (!tree_line.empty()) {
+            auto s1 = tree_line.find(' ');
+            auto s2 = tree_line.find(' ', s1 + 1);
+            auto s3 = tree_line.find(' ', s2 + 1);
+            if (s1 != std::string_view::npos && s3 != std::string_view::npos) {
+                std::string blob_hash = std::string(tree_line.substr(s2 + 1, s3 - s2 - 1));
+                std::string file_path = std::string(tree_line.substr(s3 + 1));
+                files[file_path] = blob_hash;
+            }
+        }
+        if (nl == std::string_view::npos) break;
+        tree_view.remove_prefix(nl + 1);
+    }
+    return files;
+}
+
+static void remove_from_index(const std::string& filepath, const fs::path& repo_path) {
+    fs::path index_path = repo_path / ".likegit" / "index.json";
+    std::ifstream file_in(index_path);
+    if (!file_in.is_open()) return;
+    json index_data;
+    file_in >> index_data;
+    file_in.close();
+    
+    json new_entries = json::array();
+    for (auto& entry : index_data["entries"]) {
+        if (entry["path"] != filepath) {
+            new_entries.push_back(entry);
+        }
+    }
+    index_data["entries"] = new_entries;
+    std::ofstream file_out(index_path);
+    file_out << index_data.dump(4);
+}
+
+bool merge_branch(const std::string& target_branch, const fs::path& repo_path) {
+    if (has_uncommitted_changes(repo_path)) {
+        std::cerr << "error: Your local changes would be overwritten by merge.\n";
+        std::cerr << "Please commit your changes before merging.\n";
+        return false;
+    }
+
+    std::string head_branch;
+    std::string head_commit = resolve_head(repo_path, &head_branch);
+    if (head_commit.empty()) {
+        std::cerr << "error: HEAD is empty\n";
+        return false;
+    }
+    
+    fs::path branch_path = repo_path / ".likegit" / "refs" / "heads" / target_branch;
+    if (!fs::exists(branch_path)) {
+        std::cerr << "error: branch '" << target_branch << "' not found\n";
+        return false;
+    }
+    std::ifstream ref_in(branch_path);
+    std::string target_commit;
+    std::getline(ref_in, target_commit);
+    
+    if (head_commit == target_commit) {
+        std::cout << "Already up to date.\n";
+        return true;
+    }
+    
+    std::string lca_commit = find_lca(head_commit, target_commit, repo_path);
+    if (lca_commit.empty()) {
+        std::cerr << "fatal: refusing to merge unrelated histories\n";
+        return false;
+    }
+    
+    CommitInfo head_info = parse_commit(head_commit, repo_path);
+    CommitInfo target_info = parse_commit(target_commit, repo_path);
+    CommitInfo lca_info = parse_commit(lca_commit, repo_path);
+    
+    auto head_files = get_tree_files(head_info.tree_hash, repo_path);
+    auto target_files = get_tree_files(target_info.tree_hash, repo_path);
+    auto base_files = get_tree_files(lca_info.tree_hash, repo_path);
+    
+    std::set<std::string> all_files;
+    for (const auto& [p, h] : head_files) all_files.insert(p);
+    for (const auto& [p, h] : target_files) all_files.insert(p);
+    for (const auto& [p, h] : base_files) all_files.insert(p);
+    
+    std::vector<std::string> conflicts;
+    
+    for (const auto& path : all_files) {
+        std::string h_base = base_files.count(path) ? base_files[path] : "";
+        std::string h_x = head_files.count(path) ? head_files[path] : "";
+        std::string h_y = target_files.count(path) ? target_files[path] : "";
+        
+        if (h_x == h_y) {
+            // Keep h_x (already in HEAD)
+        } else if (h_base == h_x && h_base != h_y) {
+            // Keep h_y
+            if (h_y.empty()) {
+                fs::remove(repo_path / path);
+                remove_from_index(path, repo_path);
+            } else {
+                std::string raw_blob = read_object(h_y, repo_path);
+                auto blob_null = raw_blob.find('\0');
+                std::string content = raw_blob.substr(blob_null + 1);
+                fs::create_directories((repo_path / path).parent_path());
+                std::ofstream out(repo_path / path, std::ios::binary);
+                out << content;
+                out.close();
+                update_index(path, h_y, repo_path);
+            }
+        } else if (h_base == h_y && h_base != h_x) {
+            // Keep h_x (already in HEAD)
+        } else {
+            // CONFLICT
+            conflicts.push_back(path);
+            
+            std::string content_x;
+            if (!h_x.empty()) {
+                std::string raw_x = read_object(h_x, repo_path);
+                content_x = raw_x.substr(raw_x.find('\0') + 1);
+            }
+            
+            std::string content_y;
+            if (!h_y.empty()) {
+                std::string raw_y = read_object(h_y, repo_path);
+                content_y = raw_y.substr(raw_y.find('\0') + 1);
+            }
+            
+            fs::create_directories((repo_path / path).parent_path());
+            std::ofstream out(repo_path / path, std::ios::binary);
+            out << "<<<<<<< HEAD\n" << content_x;
+            if (!content_x.empty() && content_x.back() != '\n') out << "\n";
+            out << "=======\n" << content_y;
+            if (!content_y.empty() && content_y.back() != '\n') out << "\n";
+            out << ">>>>>>> " << target_branch << "\n";
+            out.close();
+        }
+    }
+    
+    if (!conflicts.empty()) {
+        std::cout << "Merge conflicts in:\n";
+        for (const auto& c : conflicts) {
+            std::cout << "  " << c << "\n";
+        }
+        std::cout << "Automatic merge failed; fix conflicts and then commit the result.\n";
+        return false;
+    }
+    
+    std::cout << "Merge successful. Files updated in working directory. Please commit to finalize.\n";
     return true;
 }
 
