@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <string_view>
+#include "likegit/diff.hpp"
 
 namespace fs = std::filesystem;
 

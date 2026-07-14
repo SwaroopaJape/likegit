@@ -9,6 +9,7 @@ set( CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library ( likegit_core
 src/core.cpp
 src/sha1.cpp
+src/diff.cpp
 )
 # Tell the library where our header files (. hpp) live
 target_include_directories ( likegit_core PUBLIC include )

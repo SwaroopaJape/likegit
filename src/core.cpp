@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <zlib.h>
 #include "likegit/sha1.hpp"
+#include "likegit/diff.hpp"
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;

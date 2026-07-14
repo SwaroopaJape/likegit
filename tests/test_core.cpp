@@ -292,3 +292,71 @@ TEST(LogTests, ReadObjectDecompresses) {
 
     fs::remove_all(test_prj);
 }
+
+// ── Diff Tests ───────────────────────────────────────────────────────────────
+
+TEST(DiffTests, IdenticalFiles) {
+    std::vector<std::string_view> a = {"A", "B", "C"};
+    std::vector<std::string_view> b = {"A", "B", "C"};
+    auto result = compute_diff(a, b);
+    ASSERT_EQ(result.size(), 3u);
+    EXPECT_EQ(result[0].type, EditType::EQUAL);  EXPECT_EQ(result[0].text, "A");
+    EXPECT_EQ(result[1].type, EditType::EQUAL);  EXPECT_EQ(result[1].text, "B");
+    EXPECT_EQ(result[2].type, EditType::EQUAL);  EXPECT_EQ(result[2].text, "C");
+}
+
+TEST(DiffTests, CompletelyDifferentFiles) {
+    std::vector<std::string_view> a = {"A", "B"};
+    std::vector<std::string_view> b = {"X", "Y"};
+    auto result = compute_diff(a, b);
+    ASSERT_EQ(result.size(), 4u);
+    EXPECT_EQ(result[0].type, EditType::DELETE); EXPECT_EQ(result[0].text, "A");
+    EXPECT_EQ(result[1].type, EditType::DELETE); EXPECT_EQ(result[1].text, "B");
+    EXPECT_EQ(result[2].type, EditType::INSERT); EXPECT_EQ(result[2].text, "X");
+    EXPECT_EQ(result[3].type, EditType::INSERT); EXPECT_EQ(result[3].text, "Y");
+}
+
+// Textbook example from Chapter 8
+TEST(DiffTests, SingleInsertion) {
+    std::vector<std::string_view> a = {"A", "B", "C"};
+    std::vector<std::string_view> b = {"A", "B", "B", "C"};
+    auto result = compute_diff(a, b);
+    ASSERT_EQ(result.size(), 4u);
+    EXPECT_EQ(result[0].type, EditType::EQUAL);  EXPECT_EQ(result[0].text, "A");
+    EXPECT_EQ(result[1].type, EditType::EQUAL);  EXPECT_EQ(result[1].text, "B");
+    EXPECT_EQ(result[2].type, EditType::INSERT); EXPECT_EQ(result[2].text, "B");
+    EXPECT_EQ(result[3].type, EditType::EQUAL);  EXPECT_EQ(result[3].text, "C");
+}
+
+TEST(DiffTests, SingleDeletion) {
+    std::vector<std::string_view> a = {"A", "B", "C"};
+    std::vector<std::string_view> b = {"A", "C"};
+    auto result = compute_diff(a, b);
+    ASSERT_EQ(result.size(), 3u);
+    EXPECT_EQ(result[0].type, EditType::EQUAL);  EXPECT_EQ(result[0].text, "A");
+    EXPECT_EQ(result[1].type, EditType::DELETE); EXPECT_EQ(result[1].text, "B");
+    EXPECT_EQ(result[2].type, EditType::EQUAL);  EXPECT_EQ(result[2].text, "C");
+}
+
+TEST(DiffTests, EmptyOldFile) {
+    std::vector<std::string_view> a = {};
+    std::vector<std::string_view> b = {"X", "Y"};
+    auto result = compute_diff(a, b);
+    ASSERT_EQ(result.size(), 2u);
+    EXPECT_EQ(result[0].type, EditType::INSERT); EXPECT_EQ(result[0].text, "X");
+    EXPECT_EQ(result[1].type, EditType::INSERT); EXPECT_EQ(result[1].text, "Y");
+}
+
+TEST(DiffTests, EmptyNewFile) {
+    std::vector<std::string_view> a = {"X", "Y"};
+    std::vector<std::string_view> b = {};
+    auto result = compute_diff(a, b);
+    ASSERT_EQ(result.size(), 2u);
+    EXPECT_EQ(result[0].type, EditType::DELETE); EXPECT_EQ(result[0].text, "X");
+    EXPECT_EQ(result[1].type, EditType::DELETE); EXPECT_EQ(result[1].text, "Y");
+}
+
+TEST(DiffTests, BothFilesEmpty) {
+    auto result = compute_diff({}, {});
+    EXPECT_TRUE(result.empty());
+}
