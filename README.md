@@ -37,8 +37,17 @@ A comprehensive suite of unit tests covers everything from hashing to merge conf
 ./likegit /path/to/repo config user.name "Your Name"
 ./likegit /path/to/repo config user.email "you@example.com"
 
-# Stage a file
+# Stage a specific file
 ./likegit /path/to/repo add my_file.txt
+
+# Stage all files (respecting .likegitignore)
+./likegit /path/to/repo add .
+
+# View repository status
+./likegit /path/to/repo status
+
+# View unstaged changes
+./likegit /path/to/repo diff
 
 # Commit changes
 ./likegit /path/to/repo commit -m "Initial commit"
@@ -63,6 +72,7 @@ A comprehensive suite of unit tests covers everything from hashing to merge conf
 
 - **Object Database**: Compresses and stores files as blobs, groups them into trees, and tracks snapshots as commits using SHA-1 hashes.
 - **JSON Index**: Uses a simple `index.json` file to track the staging area.
+- **Ignore Files**: Supports a `.likegitignore` file (using shell glob patterns) to prevent files from being tracked.
 - **Time Travel**: Create branches and checkout specific commits (including Detached HEAD states) to jump between different points in history.
 - **Myers Diff Engine**: Includes a production-grade implementation of the Myers $O(ND)$ Difference Algorithm with line-hashing and prefix/suffix stripping for high-performance file comparisons.
 - **Three-Way Merging**: Uses a Parallel Breadth-First Search (BFS) to find the Lowest Common Ancestor (LCA) of two branches, applies a 3-way merge matrix to resolve changes, and automatically writes standard conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) when files diverge.

@@ -53,20 +53,40 @@ int main(int argc, char* argv[]) {
         return 0;
 
     } else if (command == "add") {
-        if (argc < 4) { std::cerr << "Usage: likegit <repo_path> add <file>\n"; return 1; }
+        if (argc < 4) { std::cerr << "Usage: likegit <repo_path> add <file|.>\n"; return 1; }
 
-        fs::path file_path = argv[3];
-        std::ifstream in(file_path, std::ios::binary);
-        if (!in) { std::cerr << "Error: cannot open '" << file_path << "'\n"; return 1; }
-        std::string content((std::istreambuf_iterator<char>(in)), {});
+        std::string target_file = argv[3];
+        if (target_file == ".") {
+            for (auto& entry : fs::recursive_directory_iterator(repo_path)) {
+                if (entry.is_regular_file()) {
+                    std::string rel_path = fs::relative(entry.path(), repo_path).string();
+                    if (rel_path.find(".likegit") == 0) continue;
+                    if (is_ignored(entry.path(), repo_path)) continue;
+                    
+                    std::ifstream in(entry.path(), std::ios::binary);
+                    std::string content((std::istreambuf_iterator<char>(in)), {});
+                    std::string hash = hash_object(content, "blob");
+                    std::string header = std::string("blob ") + std::to_string(content.size()) + '\0' + content;
+                    write_object(hash, header, repo_path);
+                    update_index(rel_path, hash, repo_path);
+                }
+            }
+            std::cout << "Added all files\n";
+            return 0;
+        } else {
+            fs::path file_path = repo_path / target_file;
+            std::ifstream in(file_path, std::ios::binary);
+            if (!in) { std::cerr << "Error: cannot open '" << file_path << "'\n"; return 1; }
+            std::string content((std::istreambuf_iterator<char>(in)), {});
 
-        std::string hash = hash_object(content, "blob");
-        std::string header = std::string("blob ") + std::to_string(content.size()) + '\0' + content;
-        write_object(hash, header, repo_path);
-        update_index(file_path.string(), hash, repo_path);
+            std::string hash = hash_object(content, "blob");
+            std::string header = std::string("blob ") + std::to_string(content.size()) + '\0' + content;
+            write_object(hash, header, repo_path);
+            update_index(target_file, hash, repo_path);
 
-        std::cout << "Added '" << file_path.string() << "' (" << hash << ")\n";
-        return 0;
+            std::cout << "Added '" << target_file << "' (" << hash << ")\n";
+            return 0;
+        }
 
     } else if (command == "commit") {
         if (argc < 5 || std::string(argv[3]) != "-m") {
@@ -95,6 +115,14 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "log") {
         log_history(repo_path);
+        return 0;
+
+    } else if (command == "status") {
+        cmd_status(repo_path);
+        return 0;
+
+    } else if (command == "diff") {
+        cmd_diff(repo_path);
         return 0;
 
     } else if (command == "branch") {
@@ -141,7 +169,7 @@ int main(int argc, char* argv[]) {
 
     } else {
         std::cerr << "Unknown command: " << command << "\n";
-        std::cerr << "Available: init, config, add, commit, log, branch, checkout, merge\n";
+        std::cerr << "Available: init, config, add, commit, log, branch, checkout, merge, status, diff\n";
         return 1;
     }
 }
