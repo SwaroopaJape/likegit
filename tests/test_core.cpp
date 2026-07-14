@@ -449,9 +449,8 @@ TEST(CheckoutTests, CleanRepoHasNoChanges) {
 TEST(CheckoutTests, SwitchBranchRestoresFiles) {
     fs::path test_prj = fs::temp_directory_path() / "likegit_checkout_switch";
     fs::remove_all(test_prj);
-    make_one_commit(test_prj);     // main: file.txt = "hello\n"
-
-    // Create feature branch and add a new file to it
+    make_one_commit(test_prj);     
+    
     create_branch("feature-x", test_prj);
     checkout_branch("feature-x", test_prj);
 
