@@ -8,6 +8,7 @@
 #include <set>
 #include <stdexcept>
 #include <zlib.h>
+#include <fnmatch.h>
 #include "likegit/sha1.hpp"
 #include "likegit/diff.hpp"
 #include "likegit/core.hpp"
@@ -787,4 +788,116 @@ bool checkout_branch(const std::string& target, const fs::path& repo_path) {
         head_out << commit_hash << "\n"; // Detached HEAD
 
     return true;
+}
+
+// ── gitignore, status, diff ──────────────────────────────────────────────────
+
+bool is_ignored(const fs::path& filepath, const fs::path& repo_path) {
+    fs::path gitignore_path = repo_path / ".likegitignore";
+    if (!fs::exists(gitignore_path)) return false;
+    
+    std::ifstream f(gitignore_path);
+    std::string line;
+    std::string rel_path = fs::relative(filepath, repo_path).string();
+    
+    while (std::getline(f, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        // Simple fnmatch
+        if (fnmatch(line.c_str(), rel_path.c_str(), 0) == 0) return true;
+        if (line.back() == '/') {
+            std::string dir_pattern = line.substr(0, line.size() - 1);
+            if (fnmatch(dir_pattern.c_str(), rel_path.c_str(), 0) == 0 ||
+                rel_path.find(dir_pattern + "/") == 0) return true;
+        }
+    }
+    return false;
+}
+
+void cmd_status(const fs::path& repo_path) {
+    fs::path index_path = repo_path / ".likegit" / "index.json";
+    std::ifstream f(index_path);
+    json index_data;
+    if (f.is_open()) f >> index_data;
+    
+    std::map<std::string, std::string> indexed_files;
+    if (index_data.contains("entries")) {
+        for (auto& entry : index_data["entries"]) {
+            indexed_files[entry["path"]] = entry["hash"];
+        }
+    }
+    
+    for (auto& entry : fs::recursive_directory_iterator(repo_path)) {
+        if (entry.is_regular_file()) {
+            std::string rel_path = fs::relative(entry.path(), repo_path).string();
+            if (rel_path.find(".likegit") == 0) continue;
+            if (is_ignored(entry.path(), repo_path)) continue;
+            
+            if (indexed_files.count(rel_path)) {
+                std::ifstream in(entry.path(), std::ios::binary);
+                std::string content((std::istreambuf_iterator<char>(in)), {});
+                std::string hash = hash_object(content, "blob");
+                if (hash != indexed_files[rel_path]) {
+                    std::cout << "Modified: " << rel_path << "\n";
+                }
+            } else {
+                std::cout << "Untracked: " << rel_path << "\n";
+            }
+        }
+    }
+}
+
+void cmd_diff(const fs::path& repo_path) {
+    fs::path index_path = repo_path / ".likegit" / "index.json";
+    std::ifstream f(index_path);
+    json index_data;
+    if (f.is_open()) f >> index_data;
+    
+    if (!index_data.contains("entries")) return;
+    
+    for (auto& entry : index_data["entries"]) {
+        std::string rel_path = entry["path"];
+        std::string stored_hash = entry["hash"];
+        
+        fs::path file_path = repo_path / rel_path;
+        if (!fs::exists(file_path)) continue;
+        
+        std::ifstream in(file_path, std::ios::binary);
+        std::string content((std::istreambuf_iterator<char>(in)), {});
+        std::string current_hash = hash_object(content, "blob");
+        
+        if (current_hash != stored_hash) {
+            std::string old_content = read_object(stored_hash, repo_path);
+            if (!old_content.empty()) {
+                auto null_pos = old_content.find('\0');
+                if (null_pos != std::string::npos) old_content = old_content.substr(null_pos + 1);
+            }
+            
+            auto split_lines = [](const std::string& str) {
+                std::vector<std::string_view> lines;
+                size_t start = 0;
+                while (start < str.size()) {
+                    size_t end = str.find('\n', start);
+                    if (end == std::string::npos) end = str.size();
+                    lines.push_back(std::string_view(str.data() + start, end - start));
+                    start = end + 1;
+                }
+                return lines;
+            };
+            
+            auto lines_a = split_lines(old_content);
+            auto lines_b = split_lines(content);
+            
+            auto edits = compute_diff(lines_a, lines_b);
+            std::cout << "diff --likegit " << rel_path << "\n";
+            for (const auto& edit : edits) {
+                if (edit.type == EditType::EQUAL) {
+                    std::cout << "  " << edit.text << "\n";
+                } else if (edit.type == EditType::INSERT) {
+                    std::cout << "+ " << edit.text << "\n";
+                } else if (edit.type == EditType::DELETE) {
+                    std::cout << "- " << edit.text << "\n";
+                }
+            }
+        }
+    }
 }

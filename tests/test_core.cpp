@@ -569,3 +569,29 @@ TEST(MergeTests, MergeConflict) {
     
     fs::remove_all(test_prj);
 }
+
+// ── Ignore Tests ─────────────────────────────────────────────────────────────
+
+TEST(IgnoreTests, LikegitignoreIgnoresFiles) {
+    fs::path test_prj = fs::temp_directory_path() / "likegit_ignore_test";
+    fs::remove_all(test_prj);
+    fs::create_directories(test_prj);
+    init_repository(test_prj);
+    
+    fs::path ignore_path = test_prj / ".likegitignore";
+    {
+        std::ofstream out(ignore_path);
+        out << "*.log\n";
+        out << "build/\n";
+        out << "temp.txt\n";
+    }
+    
+    EXPECT_TRUE(is_ignored(test_prj / "debug.log", test_prj));
+    EXPECT_TRUE(is_ignored(test_prj / "build" / "output.bin", test_prj));
+    EXPECT_TRUE(is_ignored(test_prj / "temp.txt", test_prj));
+    
+    EXPECT_FALSE(is_ignored(test_prj / "main.cpp", test_prj));
+    EXPECT_FALSE(is_ignored(test_prj / "README.md", test_prj));
+    
+    fs::remove_all(test_prj);
+}
