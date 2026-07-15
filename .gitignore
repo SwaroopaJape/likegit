@@ -47,7 +47,6 @@ Makefile
 *~
 .DS_Store
 
-*.pdf
 
 # Test-generated temporary directories
 likegit_test_*/
